@@ -1,10 +1,7 @@
 import importlib
-from functools import (  # type: ignore
-    GenericAlias,
-    _find_impl,
-    get_cache_token,
-    update_wrapper,
-)
+from functools import _find_impl, get_cache_token, update_wrapper  # type: ignore
+
+from skops.utils.fixes import GenericAlias
 
 
 # This is an almost 1:1 copy of functools.singledispatch. There is one crucial
