@@ -116,21 +116,3 @@ def function_get_state(obj, dst):
 def function_get_instance(obj, src):
     loaded = _import_obj(obj["__module__"], obj["__content__"])
     return loaded
-
-
-def get_state_methods():
-    return {
-        FunctionType: function_get_state,
-        dict: dict_get_state,
-        list: list_get_state,
-        tuple: tuple_get_state,
-    }
-
-
-def get_instance_methods():
-    return {
-        FunctionType: function_get_instance,
-        dict: dict_get_instance,
-        list: list_get_instance,
-        tuple: tuple_get_instance,
-    }
