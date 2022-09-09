@@ -8,7 +8,6 @@ import numpy as np
 from ._utils import _import_obj, get_instance, get_state, gettype
 
 
-@get_state.register(dict)
 def dict_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
@@ -27,7 +26,6 @@ def dict_get_state(obj, dst):
     return res
 
 
-@get_instance.register(dict)
 def dict_get_instance(state, src):
     state.pop("__class__")
     state.pop("__module__")
@@ -40,7 +38,6 @@ def dict_get_instance(state, src):
     return content
 
 
-@get_state.register(list)
 def list_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
@@ -56,7 +53,6 @@ def list_get_state(obj, dst):
     return res
 
 
-@get_instance.register(list)
 def list_get_instance(state, src):
     state.pop("__class__")
     state.pop("__module__")
@@ -69,7 +65,6 @@ def list_get_instance(state, src):
     return content
 
 
-@get_state.register(tuple)
 def tuple_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
@@ -85,7 +80,6 @@ def tuple_get_state(obj, dst):
     return res
 
 
-@get_instance.register(tuple)
 def tuple_get_instance(state, src):
     state.pop("__class__")
     state.pop("__module__")
@@ -98,7 +92,6 @@ def tuple_get_instance(state, src):
     return content
 
 
-@get_state.register(FunctionType)
 def function_get_state(obj, dst):
     if isinstance(obj, partial):
         raise TypeError("partial function are not supported yet")
@@ -110,8 +103,6 @@ def function_get_state(obj, dst):
     return res
 
 
-@get_instance.register(np.ufunc)
-@get_instance.register(FunctionType)
 def function_get_instance(obj, src):
     loaded = _import_obj(obj["__module__"], obj["content"])
     return loaded
@@ -136,3 +127,17 @@ def type_get_state(obj, dst):
 def type_get_instance(obj, src):
     loaded = _import_obj(obj["content"]["__module__"], obj["content"]["__class__"])
     return loaded
+
+
+GET_STATE_DISPATCH_FUNCTIONS = [
+    (dict, dict_get_state),
+    (list, list_get_state),
+    (tuple, tuple_get_state),
+    (FunctionType, function_get_state),
+]
+GET_INSTANCE_DISPATCH_FUNCTIONS = [
+    (dict, dict_get_instance),
+    (list, list_get_instance),
+    (tuple, tuple_get_instance),
+    (FunctionType, function_get_instance),
+]
