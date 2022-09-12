@@ -6,7 +6,7 @@ from sklearn.calibration import _CalibratedClassifier
 from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
-from ._general import dict_get_instance, dict_get_state
+from ._general import dict_get_instance
 from ._utils import get_instance, get_module, get_state, gettype, try_get_state
 
 
@@ -108,7 +108,6 @@ def bunch_get_instance(state, src):
 # tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (Tree, BaseEstimator_get_state),
-    (Bunch, dict_get_state),
     (_CalibratedClassifier, BaseEstimator_get_state),
     (BaseEstimator, BaseEstimator_get_state),
 ]
