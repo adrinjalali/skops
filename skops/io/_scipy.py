@@ -8,7 +8,7 @@ from ._utils import get_module
 def sparse_matrix_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
-        "__module__": get_module(obj),
+        "__module__": get_module(type(obj)),
     }
 
     f_name = f"{uuid4()}.npz"

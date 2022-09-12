@@ -13,7 +13,7 @@ from ._utils import get_instance, get_module, get_state, gettype, try_get_state
 def BaseEstimator_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
-        "__module__": get_module(obj),
+        "__module__": get_module(type(obj)),
     }
 
     if hasattr(obj, "__getstate__"):

@@ -165,7 +165,7 @@ def get_module(obj):
         If the module for that object cannot be found.
 
     """
-    module = inspect.getmodule(type(obj))
+    module = inspect.getmodule(obj)
     if module is None:
         raise ModuleNotFoundError(f"No module found for type {type(obj)}")
 
