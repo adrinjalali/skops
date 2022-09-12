@@ -4,7 +4,9 @@ import json
 from sklearn.base import BaseEstimator
 from sklearn.calibration import _CalibratedClassifier
 from sklearn.tree._tree import Tree
+from sklearn.utils import Bunch
 
+from ._general import dict_get_instance, dict_get_state
 from ._utils import get_instance, get_state, gettype, try_get_state
 
 
@@ -97,15 +99,23 @@ def BaseEstimator_get_instance(state, src):
     return instance
 
 
+def bunch_get_instance(state, src):
+    # Bunch is just a wrapper for dict
+    content = dict_get_instance(state, src)
+    return Bunch(**content)
+
+
 # tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (Tree, BaseEstimator_get_state),
+    (Bunch, dict_get_state),
     (_CalibratedClassifier, BaseEstimator_get_state),
     (BaseEstimator, BaseEstimator_get_state),
 ]
 # tuples of type and function that creates the instance of that type
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (Tree, BaseEstimator_get_instance),
+    (Bunch, bunch_get_instance),
     (_CalibratedClassifier, BaseEstimator_get_instance),
     (BaseEstimator, BaseEstimator_get_instance),
 ]

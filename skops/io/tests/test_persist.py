@@ -4,7 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy import special
+from scipy import sparse, special
+from sklearn.base import BaseEstimator
 from sklearn.datasets import make_classification
 from sklearn.exceptions import SkipTestWarning
 from sklearn.linear_model import LogisticRegression
@@ -107,11 +108,41 @@ def _tested_estimators(type_filter=None):
     )
 
 
+def _is_steps_like(obj):
+    # helper function to check if an object is something like Pipeline.steps,
+    # i.e. a list of tuples of names and estimators
+    if not isinstance(obj, list):  # must be a list
+        return False
+
+    if not obj:  # must not be empty
+        return False
+
+    if not isinstance(obj[0], tuple):  # must be list of tuples
+        return False
+
+    lens = set(map(len, obj))
+    if not lens == {2}:  # all elements must be length 2 tuples
+        return False
+
+    keys, vals = list(zip(*obj))
+
+    if len(keys) != len(set(keys)):  # keys must be unique
+        return False
+
+    if not all(map(lambda x: isinstance(x, (type(None), BaseEstimator)), vals)):
+        # values must be BaseEstimators or None
+        return False
+
+    return True
+
+
 def _assert_vals_equal(val1, val2):
     if hasattr(val1, "__getstate__"):
         # This includes BaseEstimator since they implement __getstate__ and
         # that returns the parameters as well.
-        _assert_vals_equal(val1.__getstate__(), val2.__getstate__())
+        assert_params_equal(val1.__getstate__(), val2.__getstate__())
+    elif sparse.issparse(val1):
+        assert sparse.issparse(val2) and ((val1 - val2).nnz == 0)
     elif isinstance(val1, (np.ndarray, np.generic)):
         if len(val1.dtype) == 0:
             # simple comparison of arrays with simple dtypes, almost all arrays
@@ -143,13 +174,9 @@ def assert_params_equal(params1, params2):
         val1, val2 = params1[key], params2[key]
         assert type(val1) == type(val2)
 
-        if (
-            (key == "steps")
-            or (key == "transformer_list")
-            or key.endswith("__steps")
-            or key.endswith("__transformer_list")
-        ):
-            # we deal with a pipeline or feature union
+        if _is_steps_like(val1):
+            # Deal with Pipeline.steps, FeatureUnion.transformer_list, etc.
+            assert _is_steps_like(val2)
             val1, val2 = dict(val1), dict(val2)
 
         if isinstance(val1, (tuple, list)):
