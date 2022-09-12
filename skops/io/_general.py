@@ -108,7 +108,6 @@ def function_get_instance(obj, src):
     return loaded
 
 
-@get_state.register(type)
 def type_get_state(obj, dst):
     # To serialize a type, we first need to set the metadata to tell that it's
     # a type, then store the type's info itself in the content field.
@@ -123,21 +122,24 @@ def type_get_state(obj, dst):
     return res
 
 
-@get_instance.register(type)
 def type_get_instance(obj, src):
     loaded = _import_obj(obj["content"]["__module__"], obj["content"]["__class__"])
     return loaded
 
 
+# tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (dict, dict_get_state),
     (list, list_get_state),
     (tuple, tuple_get_state),
     (FunctionType, function_get_state),
+    (type, type_get_state),
 ]
+# tuples of type and function that creates the instance of that type
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (dict, dict_get_instance),
     (list, list_get_instance),
     (tuple, tuple_get_instance),
     (FunctionType, function_get_instance),
+    (type, type_get_instance),
 ]

@@ -62,12 +62,13 @@ def ufunc_get_state(obj, dst):
     return res
 
 
+# tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_state),
     (np.ndarray, ndarray_get_state),
     (np.ufunc, ufunc_get_state),
 ]
-
+# tuples of type and function that creates the instance of that type
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_instance),
     (np.ndarray, ndarray_get_instance),

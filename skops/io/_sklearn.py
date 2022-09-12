@@ -100,11 +100,13 @@ def BaseEstimator_get_instance(state, src):
     return instance
 
 
+# tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (Tree, BaseEstimator_get_state),
     (_CalibratedClassifier, BaseEstimator_get_state),
     (BaseEstimator, BaseEstimator_get_state),
 ]
+# tuples of type and function that creates the instance of that type
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (Tree, BaseEstimator_get_instance),
     (_CalibratedClassifier, BaseEstimator_get_instance),
