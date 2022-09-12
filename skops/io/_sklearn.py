@@ -19,7 +19,7 @@ def BaseEstimator_get_state(obj, dst):
     if hasattr(obj, "__getstate__"):
         attrs = obj.__getstate__()
     else:
-        attrs = obj.__dir__
+        attrs = obj.__dict__
 
     reduce = False
     if hasattr(obj, "__reduce__"):
