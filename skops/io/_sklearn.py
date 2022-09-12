@@ -7,7 +7,7 @@ from sklearn.model_selection import BaseCrossValidator, BaseShuffleSplit
 from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
-from ._general import dict_get_instance, type_get_instance, type_get_state
+from ._general import dict_get_instance
 from ._utils import (
     _get_instance,
     _get_state,
@@ -150,7 +150,7 @@ GET_STATE_DISPATCH_FUNCTIONS = [
     (Tree, reduce_get_state),
     (_CalibratedClassifier, BaseEstimator_get_state),
     (BaseCrossValidator, BaseEstimator_get_state),
-    (BaseShuffleSplit, type_get_state),
+    (BaseShuffleSplit, BaseEstimator_get_state),
     (BaseEstimator, BaseEstimator_get_state),
 ]
 # tuples of type and function that creates the instance of that type
@@ -159,6 +159,6 @@ GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (Bunch, bunch_get_instance),
     (_CalibratedClassifier, BaseEstimator_get_instance),
     (BaseCrossValidator, BaseEstimator_get_instance),
-    (BaseShuffleSplit, type_get_instance),
+    (BaseShuffleSplit, BaseEstimator_get_instance),
     (BaseEstimator, BaseEstimator_get_instance),
 ]
