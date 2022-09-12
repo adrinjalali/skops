@@ -210,7 +210,7 @@ def _get_learned_attrs(estimator):
 @pytest.mark.parametrize(
     "estimator", _tested_estimators(), ids=_get_check_estimator_ids
 )
-def test_can_persist_non_fitted(estimator, request):
+def test_can_persist_non_fitted(estimator):
     """Check that non-fitted estimators can be persisted."""
     if estimator.__class__.__name__ in ESTIMATORS_TO_IGNORE:
         pytest.skip()
@@ -222,7 +222,7 @@ def test_can_persist_non_fitted(estimator, request):
 @pytest.mark.parametrize(
     "estimator", _tested_estimators(), ids=_get_check_estimator_ids
 )
-def test_can_persist_fitted(estimator, request):
+def test_can_persist_fitted(estimator):
     """Check that fitted estimators can be persisted and return the right results."""
     if estimator.__class__.__name__ in ESTIMATORS_TO_IGNORE:
         pytest.skip()
