@@ -7,13 +7,13 @@ from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
 from ._general import dict_get_instance, dict_get_state
-from ._utils import get_instance, get_state, gettype, try_get_state
+from ._utils import get_instance, get_module, get_state, gettype, try_get_state
 
 
 def BaseEstimator_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
-        "__module__": inspect.getmodule(type(obj)).__name__,
+        "__module__": get_module(obj),
     }
 
     if hasattr(obj, "__getstate__"):

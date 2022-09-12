@@ -1,13 +1,14 @@
-import inspect
 from uuid import uuid4
 
 from scipy.sparse import load_npz, save_npz, spmatrix
+
+from ._utils import get_module
 
 
 def sparse_matrix_get_state(obj, dst):
     res = {
         "__class__": obj.__class__.__name__,
-        "__module__": inspect.getmodule(type(obj)).__name__,
+        "__module__": get_module(obj),
     }
 
     f_name = f"{uuid4()}.npz"
