@@ -155,6 +155,10 @@ def _assert_vals_equal(val1, val2):
         else:
             # we don't know what to do with these values, for now.
             assert False
+    elif isinstance(val1, (tuple, list)):
+        assert len(val1) == len(val2)
+        for subval1, subval2 in zip(val1, val2):
+            _assert_vals_equal(subval1, subval2)
     elif isinstance(val1, float) and np.isnan(val1):
         assert np.isnan(val2)
     elif isinstance(val1, dict):
