@@ -167,6 +167,8 @@ def _assert_vals_equal(val1, val2):
         assert set(val1.keys()) == set(val2.keys())
         for key in val1:
             _assert_vals_equal(val1[key], val2[key])
+    elif hasattr(val1, "__dict__") and hasattr(val2, "__dict__"):
+        _assert_vals_equal(val1.__dict__, val2.__dict__)
     else:
         assert val1 == val2
 
@@ -240,7 +242,7 @@ def test_can_persist_fitted(estimator):
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", module="sklearn")
-        estimator.fit(X, y=y)
+        estimator.fit(X, y)
 
     loaded = save_load_round(estimator)
     # check that params and learned attributes are equal
@@ -345,48 +347,48 @@ def test_cross_validator(cv):
 
 
 # TODO: remove this, Adrin uses this for debugging.
-# from sklearn.linear_model import PoissonRegressor
+if __name__ == "__main__":
+    from sklearn.cross_decomposition import PLSRegression
 
-# SINGLE_CLASS = PoissonRegressor
+    SINGLE_CLASS = PLSRegression
 
-# estimator = _construct_instance(SINGLE_CLASS)
-# loaded = save_load_round(estimator)
-# assert_params_equal(estimator.get_params(), loaded.get_params())
+    estimator = _construct_instance(SINGLE_CLASS)
+    loaded = save_load_round(estimator)
+    assert_params_equal(estimator.get_params(), loaded.get_params())
 
+    set_random_state(estimator, random_state=0)
 
-# set_random_state(estimator, random_state=0)
+    # TODO: make this a parameter and test with sparse data
+    # TODO: try with pandas.DataFrame as well
+    # This data can be used for a regression model as well.
+    X, y = make_classification(n_samples=50)
+    # Some models require positive X
+    X = np.abs(X)
+    y = _enforce_estimator_tags_y(estimator, y)
 
-# # TODO: make this a parameter and test with sparse data
-# # TODO: try with pandas.DataFrame as well
-# # This data can be used for a regression model as well.
-# X, y = make_classification(n_samples=50)
-# # Some models require positive X
-# X = np.abs(X)
-# y = _enforce_estimator_tags_y(estimator, y)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", module="sklearn")
+        estimator.fit(X, y)
 
-# with warnings.catch_warnings():
-#     warnings.filterwarnings("ignore", module="sklearn")
-#     estimator.fit(X, y=y)
+    loaded = save_load_round(estimator)
+    # check that params and learned attributes are equal
+    assert_params_equal(estimator.get_params(), loaded.get_params())
+    attrs_est = _get_learned_attrs(estimator)
+    attrs_loaded = _get_learned_attrs(loaded)
+    assert_params_equal(attrs_est, attrs_loaded)
 
-# loaded = save_load_round(estimator)
-# # check that params and learned attributes are equal
-# assert_params_equal(estimator.get_params(), loaded.get_params())
-# attrs_est = _get_learned_attrs(estimator)
-# attrs_loaded = _get_learned_attrs(loaded)
-# assert_params_equal(attrs_est, attrs_loaded)
-
-# for method in [
-#     "predict",
-#     "predict_proba",
-#     "decision_function",
-#     "transform",
-#     "predict_log_proba",
-# ]:
-#     err_msg = (
-#         f"{estimator.__class__.__name__}.{method}() doesn't produce the same"
-#         " results after loading the persisted model."
-#     )
-#     if hasattr(estimator, method):
-#         X_pred1 = getattr(estimator, method)(X)
-#         X_pred2 = getattr(loaded, method)(X)
-#         assert_allclose_dense_sparse(X_pred1, X_pred2, err_msg=err_msg)
+    for method in [
+        "predict",
+        "predict_proba",
+        "decision_function",
+        "transform",
+        "predict_log_proba",
+    ]:
+        err_msg = (
+            f"{estimator.__class__.__name__}.{method}() doesn't produce the same"
+            " results after loading the persisted model."
+        )
+        if hasattr(estimator, method):
+            X_pred1 = getattr(estimator, method)(X)
+            X_pred2 = getattr(loaded, method)(X)
+            assert_allclose_dense_sparse(X_pred1, X_pred2, err_msg=err_msg)
