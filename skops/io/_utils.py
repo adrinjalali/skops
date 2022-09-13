@@ -1,10 +1,241 @@
 import importlib
 import inspect
 import json  # type: ignore
-from functools import _find_impl, get_cache_token, update_wrapper  # type: ignore
+import sys
+from functools import (  # type: ignore
+    _find_impl,
+    get_cache_token,
+    lru_cache,
+    update_wrapper,
+)
 from types import FunctionType
 
-from skops.utils.fixes import GenericAlias
+from skops.utils.fixes import GenericAlias, metadata
+
+# TODO: sys.stdlib_module_names would be preferable but it's only available in
+# Python >= 3.10. Also, this probably doesn't deal correctly with shadowing of
+# module names.
+PYTHON_MODULES = frozenset(
+    [
+        "abc",
+        "aifc",
+        "antigravity",
+        "argparse",
+        "array",
+        "ast",
+        "asynchat",
+        "asyncio",
+        "asyncore",
+        "atexit",
+        "audioop",
+        "base64",
+        "bdb",
+        "binascii",
+        "binhex",
+        "bisect",
+        "builtins",
+        "bz2",
+        "cProfile",
+        "calendar",
+        "cgi",
+        "cgitb",
+        "chunk",
+        "cmath",
+        "cmd",
+        "code",
+        "codecs",
+        "codeop",
+        "collections",
+        "colorsys",
+        "compileall",
+        "concurrent",
+        "configparser",
+        "contextlib",
+        "contextvars",
+        "copy",
+        "copyreg",
+        "crypt",
+        "csv",
+        "ctypes",
+        "curses",
+        "dataclasses",
+        "datetime",
+        "dbm",
+        "decimal",
+        "difflib",
+        "dis",
+        "distutils",
+        "doctest",
+        "email",
+        "encodings",
+        "ensurepip",
+        "enum",
+        "errno",
+        "faulthandler",
+        "fcntl",
+        "filecmp",
+        "fileinput",
+        "fnmatch",
+        "fractions",
+        "ftplib",
+        "functools",
+        "gc",
+        "genericpath",
+        "getopt",
+        "getpass",
+        "gettext",
+        "glob",
+        "graphlib",
+        "grp",
+        "gzip",
+        "hashlib",
+        "heapq",
+        "hmac",
+        "html",
+        "http",
+        "idlelib",
+        "imaplib",
+        "imghdr",
+        "imp",
+        "importlib",
+        "inspect",
+        "io",
+        "ipaddress",
+        "itertools",
+        "json",
+        "keyword",
+        "lib2to3",
+        "linecache",
+        "locale",
+        "logging",
+        "lzma",
+        "mailbox",
+        "mailcap",
+        "marshal",
+        "math",
+        "mimetypes",
+        "mmap",
+        "modulefinder",
+        "msilib",
+        "msvcrt",
+        "multiprocessing",
+        "netrc",
+        "nis",
+        "nntplib",
+        "nt",
+        "ntpath",
+        "nturl2path",
+        "numbers",
+        "opcode",
+        "operator",
+        "optparse",
+        "os",
+        "ossaudiodev",
+        "pathlib",
+        "pdb",
+        "pickle",
+        "pickletools",
+        "pipes",
+        "pkgutil",
+        "platform",
+        "plistlib",
+        "poplib",
+        "posix",
+        "posixpath",
+        "pprint",
+        "profile",
+        "pstats",
+        "pty",
+        "pwd",
+        "py_compile",
+        "pyclbr",
+        "pydoc",
+        "pydoc_data",
+        "pyexpat",
+        "queue",
+        "quopri",
+        "random",
+        "re",
+        "readline",
+        "reprlib",
+        "resource",
+        "rlcompleter",
+        "runpy",
+        "sched",
+        "secrets",
+        "select",
+        "selectors",
+        "shelve",
+        "shlex",
+        "shutil",
+        "signal",
+        "site",
+        "smtpd",
+        "smtplib",
+        "sndhdr",
+        "socket",
+        "socketserver",
+        "spwd",
+        "sqlite3",
+        "sre_compile",
+        "sre_constants",
+        "sre_parse",
+        "ssl",
+        "stat",
+        "statistics",
+        "string",
+        "stringprep",
+        "struct",
+        "subprocess",
+        "sunau",
+        "symtable",
+        "sys",
+        "sysconfig",
+        "syslog",
+        "tabnanny",
+        "tarfile",
+        "telnetlib",
+        "tempfile",
+        "termios",
+        "textwrap",
+        "this",
+        "threading",
+        "time",
+        "timeit",
+        "tkinter",
+        "token",
+        "tokenize",
+        "trace",
+        "traceback",
+        "tracemalloc",
+        "tty",
+        "turtle",
+        "turtledemo",
+        "types",
+        "typing",
+        "unicodedata",
+        "unittest",
+        "urllib",
+        "uu",
+        "uuid",
+        "venv",
+        "warnings",
+        "wave",
+        "weakref",
+        "webbrowser",
+        "winreg",
+        "winsound",
+        "wsgiref",
+        "xdrlib",
+        "xml",
+        "xmlrpc",
+        "zipapp",
+        "zipfile",
+        "zipimport",
+        "zlib",
+        "zoneinfo",
+    ]
+)
 
 
 # This is an almost 1:1 copy of functools.singledispatch. There is one crucial
@@ -119,7 +350,12 @@ def singledispatch(func):
                             '1 positional argument')
 
         # CHANGED: dispatch on instance, not class
-        return dispatch(args[0])(*args, **kw)
+        fn = dispatch(args[0])
+        res = fn(*args, **kw)
+        # CHANGED: add version when getting the state
+        if fn._is_get_state:
+            res["__version__"] = get_version(res)
+        return res
 
     funcname = getattr(func, '__name__', 'singledispatch function')
     registry[object] = func
@@ -170,6 +406,27 @@ def get_module(obj):
         raise ModuleNotFoundError(f"No module found for type {type(obj)}")
 
     return module.__name__
+
+
+@lru_cache(maxsize=None)
+def _get_version(package):
+    if package in PYTHON_MODULES:
+        # builtins and stdlib return Python version, e.g. 3.10.0
+        return ".".join(map(str, sys.version_info[:3]))
+
+    try:
+        version = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        version = getattr(importlib.import_module(package), "__version__", "<unknown>")
+    return version
+
+
+def get_version(state):
+    """Get version from a package or Python based on state"""
+    module = state["__module__"]
+    package, _, _ = module.partition(".")
+    version = _get_version(package)
+    return version
 
 
 @singledispatch

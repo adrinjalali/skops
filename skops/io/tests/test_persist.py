@@ -1,9 +1,15 @@
+import json
+import sys
 import tempfile
 import warnings
+from collections import Counter
 from pathlib import Path
+from zipfile import ZipFile
 
 import numpy as np
 import pytest
+import scipy
+import sklearn
 from scipy import sparse, special
 from sklearn.base import BaseEstimator
 from sklearn.datasets import load_sample_images, make_classification
@@ -30,6 +36,7 @@ from sklearn.utils.estimator_checks import (
     _get_check_estimator_ids,
 )
 
+import skops
 from skops.io import load, save
 from skops.utils.fixes import path_unlink
 
@@ -384,6 +391,86 @@ def test_cross_validator(cv):
     assert len(splits_est) == len(splits_loaded)
     for split_est, split_loaded in zip(splits_est, splits_loaded):
         np.testing.assert_equal(split_est, split_loaded)
+
+
+def test_metainfo():
+    class MyEstimator(BaseEstimator):
+        """Estimator with attributes of different supported types"""
+
+        def fit(self, X, y=None, **fit_params):
+            self.builtin_ = [1, 2, 3]
+            self.stdlib_ = Counter([10, 20, 20, 30, 30, 30])
+            self.numpy_ = np.arange(5)
+            self.sparse_ = sparse.csr_matrix([[0, 1], [1, 0]])
+            self.sklearn_ = LogisticRegression()
+            # create a nested data structure to check if that works too
+            self.nested_ = {
+                "builtin_": self.builtin_,
+                "stdlib_": self.stdlib_,
+                "numpy_": self.numpy_,
+                "sparse_": self.sparse_,
+                "sklearn_": self.sklearn_,
+            }
+            return self
+
+    # Versions of different packages
+    python_version = ".".join(map(str, sys.version_info[:3]))
+    numpy_version = np.__version__
+    sklearn_version = sklearn.__version__
+    scipy_version = scipy.__version__
+    skops_version = skops.__version__
+
+    # safe and load the schema
+    estimator = MyEstimator().fit(None)
+    _, f_name = tempfile.mkstemp(prefix="skops-", suffix=".skops")
+    save(file=f_name, obj=estimator)
+    schema = json.loads(ZipFile(f_name).read("schema.json"))
+
+    # check some schema metainfo
+    assert schema["protocol"] == skops.io._persist.PROTOCOL
+    assert schema["_skops_version"] == skops_version
+
+    # additionally, check following metainfo: class, module, and version
+    expected = {
+        "builtin_": {
+            "__class__": "list",
+            "__module__": "builtins",
+            "__version__": python_version,
+        },
+        "stdlib_": {
+            "__class__": "Counter",
+            "__module__": "collections",
+            "__version__": python_version,
+        },
+        "numpy_": {
+            "__class__": "ndarray",
+            "__module__": "numpy",
+            "__version__": numpy_version,
+        },
+        "sparse_": {
+            "__class__": "csr_matrix",
+            "__module__": "scipy.sparse",
+            "__version__": scipy_version,
+        },
+        "sklearn_": {
+            "__class__": "LogisticRegression",
+            "__module__": "sklearn.linear_model",
+            "__version__": sklearn_version,
+        },
+    }
+    # check both the top level state and the nested state
+    states = schema["content"], schema["content"]["nested_"]["content"]
+    for key, val_expected in expected.items():
+        for state in states:
+            val_state = state[key]
+            # check presence of "content"/"file" but not exact values
+            assert ("content" in val_state) or ("file" in val_state)
+            assert val_state["__class__"] == val_expected["__class__"]
+            assert val_state["__version__"] == val_expected["__version__"]
+            # We don't want to compare full module structures, because they can
+            # change across versions, e.g. 'scipy.sparse.csr' moving to
+            # 'scipy.sparse._csr'.
+            assert val_state["__module__"].startswith(val_expected["__module__"])
 
 
 # TODO: remove this, Adrin uses this for debugging.
