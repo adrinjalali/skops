@@ -3,6 +3,7 @@ import sys
 import tempfile
 import warnings
 from collections import Counter
+from functools import partial
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -123,6 +124,12 @@ def _tested_estimators(type_filter=None):
         inverse_func=special.erfinv,
     )
 
+    # partial functions should be supported
+    yield FunctionTransformer(
+        func=partial(np.add, 10),
+        inverse_func=partial(np.add, -10),
+    )
+
 
 def _is_steps_like(obj):
     # helper function to check if an object is something like Pipeline.steps,
@@ -152,6 +159,21 @@ def _is_steps_like(obj):
     return True
 
 
+def _assert_generic_objects_equal(val1, val2):
+    if isinstance(val1, (list, tuple, np.ndarray)):
+        assert len(val1) == len(val2)
+        for subval1, subval2 in zip(val1, val2):
+            _assert_generic_objects_equal(subval1, subval2)
+            return
+
+    assert type(val1) == type(val2)
+    if hasattr(val1, "__dict__"):
+        assert_params_equal(val1.__dict__, val2.__dict__)
+    else:
+        # not a normal Python class, could be e.g. a Cython class
+        assert val1.__reduce__() == val2.__reduce__()
+
+
 def _assert_vals_equal(val1, val2):
     if hasattr(val1, "__getstate__"):
         # This includes BaseEstimator since they implement __getstate__ and
@@ -161,9 +183,15 @@ def _assert_vals_equal(val1, val2):
         assert sparse.issparse(val2) and ((val1 - val2).nnz == 0)
     elif isinstance(val1, (np.ndarray, np.generic)):
         if len(val1.dtype) == 0:
-            # simple comparison of arrays with simple dtypes, almost all arrays
-            # are of this sort.
-            np.testing.assert_array_equal(val1, val2)
+            if val1.dtype == object:
+                assert val2.dtype == object
+                assert val1.shape == val2.shape
+                for subval1, subval2 in zip(val1, val2):
+                    _assert_generic_objects_equal(subval1, subval2)
+            else:
+                # simple comparison of arrays with simple dtypes, almost all
+                # arrays are of this sort.
+                np.testing.assert_array_equal(val1, val2)
         elif len(val1.shape) == 1:
             # comparing arrays with structured dtypes, but they have to be 1D
             # arrays. This is what we get from the Tree's state.
@@ -184,8 +212,12 @@ def _assert_vals_equal(val1, val2):
             _assert_vals_equal(val1[key], val2[key])
     elif hasattr(val1, "__dict__") and hasattr(val2, "__dict__"):
         _assert_vals_equal(val1.__dict__, val2.__dict__)
-    else:
+    elif isinstance(val1, np.ufunc):
         assert val1 == val2
+    elif val1.__class__.__module__ == "builtins":
+        assert val1 == val2
+    else:
+        _assert_generic_objects_equal(val1, val2)
 
 
 def assert_params_equal(params1, params2):
@@ -193,7 +225,10 @@ def assert_params_equal(params1, params2):
     assert len(params1) == len(params2)
     assert set(params1.keys()) == set(params2.keys())
     for key in params1:
-        val1, val2 = params1[key], params2[key]
+        with warnings.catch_warnings():
+            # this is to silence the deprecation warning from _DictWithDeprecatedKeys
+            warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+            val1, val2 = params1[key], params2[key]
         assert type(val1) == type(val2)
 
         if _is_steps_like(val1):
@@ -246,6 +281,10 @@ def get_input(estimator):
     X, y = make_classification(n_samples=50)
     y = _enforce_estimator_tags_y(estimator, y)
     tags = _safe_tags(estimator)
+
+    if tags["pairwise"] is True:
+        return np.random.rand(20, 20), None
+
     if "2darray" in tags["X_types"]:
         # Some models require positive X
         return np.abs(X), y
@@ -482,7 +521,8 @@ def test_metainfo():
 
 # TODO: remove this, Adrin uses this for debugging.
 if __name__ == "__main__":
-    from sklearn.cross_decomposition import CCA as SINGLE_CLASS
+    from sklearn.experimental import enable_iterative_imputer  # noqa
+    from sklearn.impute import IterativeImputer as SINGLE_CLASS
 
     estimator = _construct_instance(SINGLE_CLASS)
     loaded = save_load_round(estimator)

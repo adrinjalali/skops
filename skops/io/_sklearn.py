@@ -1,10 +1,22 @@
 import inspect
 import json
 
+from sklearn.covariance._graph_lasso import _DictWithDeprecatedKeys
+from sklearn.linear_model._sgd_fast import (
+    EpsilonInsensitive,
+    Hinge,
+    Huber,
+    Log,
+    LossFunction,
+    ModifiedHuber,
+    SquaredEpsilonInsensitive,
+    SquaredHinge,
+    SquaredLoss,
+)
 from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
-from ._general import dict_get_instance
+from ._general import dict_get_instance, dict_get_state
 from ._utils import (
     _get_instance,
     _get_state,
@@ -14,9 +26,24 @@ from ._utils import (
     gettype,
 )
 
+ALLOWED_SGD_LOSSES = {
+    ModifiedHuber,
+    Hinge,
+    SquaredHinge,
+    Log,
+    SquaredLoss,
+    Huber,
+    EpsilonInsensitive,
+    SquaredEpsilonInsensitive,
+}
+
 
 def generic_get_state(obj, dst):
+    # This method is for objects which can either be persisted with json, or
+    # the ones for which we can get/set attributes through
+    # __getstate__/__setstate__ or reading/writing to __dict__.
     try:
+        # if we can simply use json, then we're done.
         return json.dumps(obj)
     except Exception:
         pass
@@ -26,6 +53,8 @@ def generic_get_state(obj, dst):
         "__module__": get_module(type(obj)),
     }
 
+    # __getstate__ takes priority over __dict__, and if non exist, we only save
+    # the type of the object, and loading would mean instantiating the object.
     if hasattr(obj, "__getstate__"):
         attrs = obj.__getstate__()
     elif hasattr(obj, "__dict__"):
@@ -107,8 +136,10 @@ def reduce_get_state(obj, dst):
         attrs = reduce[2]
     elif hasattr(obj, "__getstate__"):
         attrs = obj.__getstate__()
-    else:
+    elif hasattr(obj, "__dict__"):
         attrs = obj.__dict__
+    else:
+        return res
 
     content = {}
     for key, value in attrs.items():
@@ -129,6 +160,9 @@ def reduce_get_instance(state, src, constructor):
     args = get_instance(reduce["args"], src)
     instance = constructor(*args)
 
+    if "content" not in state:
+        return instance
+
     content = state["content"]
     attrs = {}
     for key, value in content.items():
@@ -146,20 +180,56 @@ def Tree_get_instance(state, src):
     return reduce_get_instance(state, src, Tree)
 
 
+def sgd_loss_get_instance(state, src):
+    cls = gettype(state)
+    if cls not in ALLOWED_SGD_LOSSES:
+        raise TypeError(f"Expected LossFunction, got {cls}")
+    return reduce_get_instance(state, src, cls)
+
+
 def bunch_get_instance(state, src):
     # Bunch is just a wrapper for dict
     content = dict_get_instance(state, src)
     return Bunch(**content)
 
 
+def _DictWithDeprecatedKeys_get_state(obj, dst):
+    res = {
+        "__class__": obj.__class__.__name__,
+        "__module__": get_module(type(obj)),
+    }
+    content = {}
+    content["main"] = dict_get_state(obj, dst)
+    content["_deprecated_key_to_new_key"] = dict_get_state(
+        obj._deprecated_key_to_new_key, dst
+    )
+    res["content"] = content
+    return res
+
+
+def _DictWithDeprecatedKeys_get_instance(state, src):
+    # _DictWithDeprecatedKeys is just a wrapper for dict
+    content = dict_get_instance(state["content"]["main"], src)
+    deprecated_key_to_new_key = dict_get_instance(
+        state["content"]["_deprecated_key_to_new_key"], src
+    )
+    res = _DictWithDeprecatedKeys(**content)
+    res._deprecated_key_to_new_key = deprecated_key_to_new_key
+    return res
+
+
 # tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
+    (LossFunction, reduce_get_state),
     (Tree, reduce_get_state),
+    (_DictWithDeprecatedKeys, _DictWithDeprecatedKeys_get_state),
     (object, generic_get_state),
 ]
 # tuples of type and function that creates the instance of that type
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
+    (LossFunction, sgd_loss_get_instance),
     (Tree, Tree_get_instance),
     (Bunch, bunch_get_instance),
+    (_DictWithDeprecatedKeys, _DictWithDeprecatedKeys_get_instance),
     (object, generic_get_instance),
 ]

@@ -1,6 +1,4 @@
 import io
-import json
-from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,7 +6,7 @@ import numpy as np
 
 from ._general import function_get_instance
 from ._persist import get_instance, get_state
-from ._utils import _import_obj, get_module, whichmodule
+from ._utils import _import_obj, get_module
 
 
 def ndarray_get_state(obj, dst):
@@ -24,13 +22,14 @@ def ndarray_get_state(obj, dst):
             res["type"] = "numpy"
             res["file"] = f_name
     except ValueError:
-        # object arrays cannot be saved with allow_pickle=False, therefore we
-        # convert them to a list and store them as a json file.
-        f_name = f"{uuid4()}.json"
-        with open(Path(dst) / f_name, "w") as f:
-            f.write(json.dumps(obj.tolist()))
+        # Object arrays cannot be saved with allow_pickle=False, therefore we
+        # convert them to a list and recursively call get_state on it.
+        if obj.dtype == object:
+            obj = get_state(obj.tolist(), dst)
+            res["content"] = obj["content"]
             res["type"] = "json"
-            res["file"] = f_name
+        else:
+            raise TypeError(f"numpy arrays of dtype {obj.dtype} are not supported yet")
 
     return res
 
@@ -44,7 +43,7 @@ def ndarray_get_instance(state, src):
             cls = _import_obj(state["__module__"], state["__class__"])
             val = cls(val)
     else:
-        val = np.array(json.loads(src.read(state["file"])))
+        val = np.array([get_instance(s, src) for s in state["content"]])
     return val
 
 
@@ -94,17 +93,34 @@ def random_generator_get_instance(state, src):
 # functions we get it from objet's module directly. Therefore sett a especial
 # get_state method for them here. The load is the same as other functions.
 def ufunc_get_state(obj, dst):
-    if isinstance(obj, partial):
-        raise TypeError("partial function are not supported yet")
     res = {
         "__class__": obj.__class__.__name__,  # ufunc
         "__module__": get_module(type(obj)),  # numpy
         "content": {
-            "module_path": whichmodule(obj, obj.__name__),
+            "module_path": get_module(obj),
             "function": obj.__name__,
         },
     }
     return res
+
+
+def dtype_get_state(obj, dst):
+    # we use numpy's internal save mechanism to store the dtype by
+    # saving/loading an empty array with that dtype.
+    tmp = np.ndarray(0, dtype=obj)
+    res = {
+        "__class__": "dtype",
+        "__module__": "numpy",
+        "content": ndarray_get_state(tmp, dst),
+    }
+    return res
+
+
+def dtype_get_instance(state, src):
+    # we use numpy's internal save mechanism to store the dtype by
+    # saving/loading an empty array with that dtype.
+    tmp = ndarray_get_instance(state["content"], src)
+    return tmp.dtype
 
 
 # tuples of type and function that gets the state of that type
@@ -112,6 +128,7 @@ GET_STATE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_state),
     (np.ndarray, ndarray_get_state),
     (np.ufunc, ufunc_get_state),
+    (np.dtype, dtype_get_state),
     (np.random.RandomState, random_state_get_state),
     (np.random.Generator, random_generator_get_state),
 ]
@@ -120,6 +137,7 @@ GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_instance),
     (np.ndarray, ndarray_get_instance),
     (np.ufunc, function_get_instance),
+    (np.dtype, dtype_get_instance),
     (np.random.RandomState, random_state_get_instance),
     (np.random.Generator, random_generator_get_instance),
 ]
