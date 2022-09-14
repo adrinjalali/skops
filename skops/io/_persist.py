@@ -22,10 +22,8 @@ for module_name in modules:
     # register exposed functions for get_state and get_instance
     module = importlib.import_module(module_name, package="skops.io")
     for cls, method in getattr(module, "GET_STATE_DISPATCH_FUNCTIONS", []):
-        method._is_get_state = True
         get_state.register(cls)(method)
     for cls, method in getattr(module, "GET_INSTANCE_DISPATCH_FUNCTIONS", []):
-        method._is_get_state = False
         get_instance.register(cls)(method)
 
 

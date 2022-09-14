@@ -1,5 +1,4 @@
 import json
-import sys
 import tempfile
 import warnings
 from collections import Counter
@@ -9,8 +8,6 @@ from zipfile import ZipFile
 
 import numpy as np
 import pytest
-import scipy
-import sklearn
 from scipy import sparse, special
 from sklearn.base import BaseEstimator
 from sklearn.datasets import load_sample_images, make_classification
@@ -459,13 +456,6 @@ def test_metainfo():
             }
             return self
 
-    # Versions of different packages
-    python_version = ".".join(map(str, sys.version_info[:3]))
-    numpy_version = np.__version__
-    sklearn_version = sklearn.__version__
-    scipy_version = scipy.__version__
-    skops_version = skops.__version__
-
     # safe and load the schema
     estimator = MyEstimator().fit(None)
     _, f_name = tempfile.mkstemp(prefix="skops-", suffix=".skops")
@@ -474,34 +464,29 @@ def test_metainfo():
 
     # check some schema metainfo
     assert schema["protocol"] == skops.io._persist.PROTOCOL
-    assert schema["_skops_version"] == skops_version
+    assert schema["_skops_version"] == skops.__version__
 
     # additionally, check following metainfo: class, module, and version
     expected = {
         "builtin_": {
             "__class__": "list",
             "__module__": "builtins",
-            "__version__": python_version,
         },
         "stdlib_": {
             "__class__": "Counter",
             "__module__": "collections",
-            "__version__": python_version,
         },
         "numpy_": {
             "__class__": "ndarray",
             "__module__": "numpy",
-            "__version__": numpy_version,
         },
         "sparse_": {
             "__class__": "csr_matrix",
             "__module__": "scipy.sparse",
-            "__version__": scipy_version,
         },
         "sklearn_": {
             "__class__": "LogisticRegression",
             "__module__": "sklearn.linear_model",
-            "__version__": sklearn_version,
         },
     }
     # check both the top level state and the nested state
@@ -512,7 +497,6 @@ def test_metainfo():
             # check presence of "content"/"file" but not exact values
             assert ("content" in val_state) or ("file" in val_state)
             assert val_state["__class__"] == val_expected["__class__"]
-            assert val_state["__version__"] == val_expected["__version__"]
             # We don't want to compare full module structures, because they can
             # change across versions, e.g. 'scipy.sparse.csr' moving to
             # 'scipy.sparse._csr'.
