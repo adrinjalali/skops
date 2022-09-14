@@ -41,14 +41,7 @@ from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
 from ._general import dict_get_instance, dict_get_state
-from ._utils import (
-    _get_instance,
-    _get_state,
-    get_instance,
-    get_module,
-    get_state,
-    gettype,
-)
+from ._utils import _get_instance, _get_state, get_module, get_state, gettype
 
 ALLOWED_SGD_LOSSES = {
     ModifiedHuber,
@@ -196,10 +189,19 @@ def reduce_get_state(obj, dst):
         return res
 
     content = {}
-    for key, value in attrs.items():
-        if isinstance(getattr(type(obj), key, None), property):
-            continue
-        content[key] = _get_state(value, dst)
+    # the return value from __getstate__ (and thus indirectly __reduce__) is
+    # usually a dict but some classes return tuples
+    if isinstance(attrs, tuple):
+        content["args"] = {
+            "__class__": obj.__class__.__name__,
+            "__module__": get_module(type(obj)),
+            "__reduce__": {"state": _get_state(attrs, dst)},
+        }
+    else:
+        for key, value in attrs.items():
+            if isinstance(getattr(type(obj), key, None), property):
+                continue
+            content[key] = _get_state(value, dst)
 
     res["content"] = content
 
@@ -210,8 +212,17 @@ def reduce_get_instance(state, src, constructor):
     state.pop("__class__")
     state.pop("__module__")
 
+    # arguments (coming from __getstate__) are typically dicts but some classes
+    # return them as tuples, which requires a different treatment
+    if "args" in state.get("content", ()):
+        instance = constructor.__new__(constructor)
+        reduce = state["content"]["args"]["__reduce__"]
+        args = _get_instance(reduce["state"], src)
+        instance.__setstate__(args)
+        return instance
+
     reduce = state.pop("__reduce__")
-    args = get_instance(reduce["args"], src)
+    args = _get_instance(reduce["args"], src)
     instance = constructor(*args)
 
     if "content" not in state:
@@ -241,42 +252,18 @@ def sgd_loss_get_instance(state, src):
     return reduce_get_instance(state, src, constructor=cls)
 
 
-def reduce_based_on_tuple_get_state(obj, dst):
-    # For more details, take a look at reduce_get_state. This extra function is
-    # needed because __getstate__ of certain sklearn classes returns a tuple
-    # instead of a dict, which we thus need to treat differently.
-    res = {
-        "__class__": obj.__class__.__name__,
-        "__module__": inspect.getmodule(type(obj)).__name__,
-    }
-    reduce = obj.__reduce__()
-    res["__reduce__"] = {"state": get_state(reduce[2], dst)}
-    return res
-
-
-def reduce_based_on_tuple_get_instance(state, src, constructor):
-    # For more details, take a look at reduce_get_instance. This extra function
-    # is needed because __setstate__ of certain sklearn classes require a tuple
-    # instead of a dict, which we thus need to treat differently.
-    instance = constructor.__new__(constructor)
-    reduce = state.pop("__reduce__")
-    args = get_instance(reduce["state"], src)
-    instance.__setstate__(args)
-    return instance
-
-
 def binary_tree_get_instance(state, src):
     cls = gettype(state)
     if cls not in ALLOWED_BINARY_TREES:
         raise TypeError(f"Expected BinaryTree, got {cls}")
-    return reduce_based_on_tuple_get_instance(state, src, constructor=cls)
+    return reduce_get_instance(state, src, constructor=cls)
 
 
 def distance_metric_get_instance(state, src):
     cls = gettype(state)
     if cls not in ALLOWED_DIST_METRICS:
         raise TypeError(f"Expected DistanceMetric, got {cls}")
-    return reduce_based_on_tuple_get_instance(state, src, constructor=cls)
+    return reduce_get_instance(state, src, constructor=cls)
 
 
 def bunch_get_instance(state, src):
@@ -314,9 +301,9 @@ def _DictWithDeprecatedKeys_get_instance(state, src):
 GET_STATE_DISPATCH_FUNCTIONS = [
     (LossFunction, reduce_get_state),
     (Tree, reduce_get_state),
-    (BallTree, reduce_based_on_tuple_get_state),
-    (KDTree, reduce_based_on_tuple_get_state),
-    (DistanceMetric, reduce_based_on_tuple_get_state),
+    (BallTree, reduce_get_state),
+    (KDTree, reduce_get_state),
+    (DistanceMetric, reduce_get_state),
     (_DictWithDeprecatedKeys, _DictWithDeprecatedKeys_get_state),
     (object, generic_get_state),
 ]
