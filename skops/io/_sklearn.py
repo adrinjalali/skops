@@ -14,7 +14,28 @@ from sklearn.linear_model._sgd_fast import (
     SquaredLoss,
 )
 from sklearn.metrics import DistanceMetric
-from sklearn.metrics._dist_metrics import METRIC_MAPPING
+from sklearn.metrics._dist_metrics import (
+    BrayCurtisDistance,
+    CanberraDistance,
+    ChebyshevDistance,
+    DiceDistance,
+    EuclideanDistance,
+    HammingDistance,
+    HaversineDistance,
+    JaccardDistance,
+    KulsinskiDistance,
+    MahalanobisDistance,
+    ManhattanDistance,
+    MatchingDistance,
+    MinkowskiDistance,
+    PyFuncDistance,
+    RogersTanimotoDistance,
+    RussellRaoDistance,
+    SEuclideanDistance,
+    SokalMichenerDistance,
+    SokalSneathDistance,
+    WMinkowskiDistance,
+)
 from sklearn.neighbors import BallTree, KDTree
 from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
@@ -40,7 +61,33 @@ ALLOWED_SGD_LOSSES = {
     SquaredEpsilonInsensitive,
 }
 ALLOWED_BINARY_TREES = {BallTree, KDTree}
-ALLOWED_DIST_METRICS = set(METRIC_MAPPING.values())
+ALLOWED_DIST_METRICS = {
+    BrayCurtisDistance,
+    CanberraDistance,
+    ChebyshevDistance,
+    ChebyshevDistance,
+    DiceDistance,
+    EuclideanDistance,
+    EuclideanDistance,
+    HammingDistance,
+    HaversineDistance,
+    JaccardDistance,
+    KulsinskiDistance,
+    MahalanobisDistance,
+    ManhattanDistance,
+    ManhattanDistance,
+    ManhattanDistance,
+    MatchingDistance,
+    MinkowskiDistance,
+    MinkowskiDistance,
+    PyFuncDistance,
+    RogersTanimotoDistance,
+    RussellRaoDistance,
+    SEuclideanDistance,
+    SokalMichenerDistance,
+    SokalSneathDistance,
+    WMinkowskiDistance,
+}
 
 
 def generic_get_state(obj, dst):
