@@ -12,6 +12,7 @@ from scipy import sparse, special
 from sklearn.base import BaseEstimator
 from sklearn.compose import ColumnTransformer
 from sklearn.datasets import load_sample_images, make_classification
+from sklearn.decomposition import SparseCoder
 from sklearn.exceptions import SkipTestWarning
 from sklearn.experimental import enable_halving_search_cv  # noqa
 from sklearn.linear_model import LogisticRegression
@@ -156,11 +157,6 @@ def _tested_estimators(type_filter=None):
         {"C": [1, 2, 3, 4, 5]},
     )
 
-    yield HalvingGridSearchCV(
-        LogisticRegression(random_state=0, solver="liblinear"),
-        {"C": [1, 2, 3, 4, 5]},
-    )
-
     yield HalvingRandomSearchCV(
         LogisticRegression(random_state=0, solver="liblinear"),
         {"C": [1, 2, 3, 4, 5]},
@@ -171,8 +167,6 @@ def _tested_estimators(type_filter=None):
         {"C": [1, 2, 3, 4, 5]},
         n_iter=3,
     )
-
-    from sklearn.decomposition import SparseCoder
 
     dictionary = np.random.randint(-2, 3, size=(5, N_FEATURES)).astype(float)
     yield SparseCoder(
