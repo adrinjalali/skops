@@ -11,6 +11,8 @@ def dict_get_state(obj, dst):
         "__class__": obj.__class__.__name__,
         "__module__": get_module(type(obj)),
     }
+
+    key_types = _get_state([type(key) for key in obj.keys()], dst)
     content = {}
     for key, value in obj.items():
         if np.isscalar(key) and hasattr(key, "item"):
@@ -18,6 +20,7 @@ def dict_get_state(obj, dst):
             key = key.item()
         content[key] = _get_state(value, dst)
     res["content"] = content
+    res["key_types"] = key_types
     return res
 
 
@@ -25,8 +28,9 @@ def dict_get_instance(state, src):
     content = gettype(state)()
     state.pop("__class__")
     state.pop("__module__")
-    for key, value in state["content"].items():
-        content[key] = _get_instance(value, src)
+    key_types = _get_instance(state["key_types"], src)
+    for k_type, item in zip(key_types, state["content"].items()):
+        content[k_type(item[0])] = _get_instance(item[1], src)
     return content
 
 
@@ -151,11 +155,32 @@ def type_get_instance(obj, src):
     return loaded
 
 
+def slice_get_state(obj, dst):
+    res = {
+        "__class__": obj.__class__.__name__,
+        "__module__": get_module(type(obj)),
+        "content": {
+            "start": obj.start,
+            "stop": obj.stop,
+            "step": obj.step,
+        },
+    }
+    return res
+
+
+def slice_get_instance(obj, src):
+    start = obj["content"]["start"]
+    stop = obj["content"]["stop"]
+    step = obj["content"]["step"]
+    return slice(start, stop, step)
+
+
 # tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (dict, dict_get_state),
     (list, list_get_state),
     (tuple, tuple_get_state),
+    (slice, slice_get_state),
     (FunctionType, function_get_state),
     (partial, partial_get_state),
     (type, type_get_state),
@@ -165,6 +190,7 @@ GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (dict, dict_get_instance),
     (list, list_get_instance),
     (tuple, tuple_get_instance),
+    (slice, slice_get_instance),
     (FunctionType, function_get_instance),
     (partial, partial_get_instance),
     (type, type_get_instance),

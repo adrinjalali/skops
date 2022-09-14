@@ -25,13 +25,32 @@ def ndarray_get_state(obj, dst):
         # Object arrays cannot be saved with allow_pickle=False, therefore we
         # convert them to a list and recursively call get_state on it.
         if obj.dtype == object:
-            obj = get_state(obj.tolist(), dst)
-            res["content"] = obj["content"]
+            obj_serialized = get_state(obj.tolist(), dst)
+            res["content"] = obj_serialized["content"]
             res["type"] = "json"
+            res["shape"] = get_state(obj.shape, dst)
         else:
             raise TypeError(f"numpy arrays of dtype {obj.dtype} are not supported yet")
 
     return res
+
+
+def maskedarray_get_state(obj, dst):
+    res = {
+        "__class__": obj.__class__.__name__,
+        "__module__": get_module(type(obj)),
+        "content": {
+            "data": get_state(obj.data, dst),
+            "mask": get_state(obj.mask, dst),
+        },
+    }
+    return res
+
+
+def maskedarray_get_instance(state, src):
+    data = get_instance(state["content"]["data"], src)
+    mask = get_instance(state["content"]["mask"], src)
+    return np.ma.MaskedArray(data, mask)
 
 
 def ndarray_get_instance(state, src):
@@ -43,7 +62,18 @@ def ndarray_get_instance(state, src):
             cls = _import_obj(state["__module__"], state["__class__"])
             val = cls(val)
     else:
-        val = np.array([get_instance(s, src) for s in state["content"]])
+        # We explicitly set the dtype to "O" since we only save object arrays
+        # in json.
+        shape = get_instance(state["shape"], src)
+        tmp = [get_instance(s, src) for s in state["content"]]
+        # TODO: this is a hack to get the correct shape of the array. We should
+        # find a better way to do this.
+        if len(shape) == 1:
+            val = np.ndarray(shape=len(tmp), dtype="O")
+            for i, v in enumerate(tmp):
+                val[i] = v
+        else:
+            val = np.array(tmp, dtype="O")
     return val
 
 
@@ -127,6 +157,7 @@ def dtype_get_instance(state, src):
 GET_STATE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_state),
     (np.ndarray, ndarray_get_state),
+    (np.ma.MaskedArray, maskedarray_get_state),
     (np.ufunc, ufunc_get_state),
     (np.dtype, dtype_get_state),
     (np.random.RandomState, random_state_get_state),
@@ -136,6 +167,7 @@ GET_STATE_DISPATCH_FUNCTIONS = [
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (np.generic, ndarray_get_instance),
     (np.ndarray, ndarray_get_instance),
+    (np.ma.MaskedArray, maskedarray_get_instance),
     (np.ufunc, function_get_instance),
     (np.dtype, dtype_get_instance),
     (np.random.RandomState, random_state_get_instance),

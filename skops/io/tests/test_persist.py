@@ -1,21 +1,37 @@
+import json
 import tempfile
 import warnings
+from collections import Counter
 from functools import partial
 from pathlib import Path
+from zipfile import ZipFile
 
 import numpy as np
 import pytest
 from scipy import sparse, special
 from sklearn.base import BaseEstimator
+from sklearn.compose import ColumnTransformer
 from sklearn.datasets import load_sample_images, make_classification
+from sklearn.decomposition import SparseCoder
 from sklearn.exceptions import SkipTestWarning
+from sklearn.experimental import enable_halving_search_cv  # noqa
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import KFold, ShuffleSplit, StratifiedGroupKFold, check_cv
+from sklearn.model_selection import (
+    GridSearchCV,
+    HalvingGridSearchCV,
+    HalvingRandomSearchCV,
+    KFold,
+    RandomizedSearchCV,
+    ShuffleSplit,
+    StratifiedGroupKFold,
+    check_cv,
+)
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import (
     FunctionTransformer,
     MinMaxScaler,
+    Normalizer,
     PolynomialFeatures,
     StandardScaler,
 )
@@ -32,19 +48,13 @@ from sklearn.utils.estimator_checks import (
     _get_check_estimator_ids,
 )
 
+import skops
 from skops.io import load, save
 from skops.utils.fixes import path_unlink
 
-# list of estimators for which we need to write tests since we can't
-# automatically create an instance of them.
-EXPLICIT_TESTS = [
-    "ColumnTransformer",
-    "GridSearchCV",
-    "HalvingGridSearchCV",
-    "HalvingRandomSearchCV",
-    "RandomizedSearchCV",
-    "SparseCoder",
-]
+# Default settings for X
+N_SAMPLES = 50
+N_FEATURES = 20
 
 # These estimators fail in our tests, we should fix them one by one, by
 # removing them from this list, and fixing the error.
@@ -83,6 +93,9 @@ def _tested_estimators(type_filter=None):
                     # Then n_best needs to be <= n_components
                     if "n_best" in estimator.get_params():
                         estimator.set_params(n_best=1)
+                if "patch_size" in estimator.get_params():
+                    # set patch size to fix PatchExtractor test.
+                    estimator.set_params(patch_size=(3, 3))
         except SkipTest:
             continue
 
@@ -127,6 +140,44 @@ def _tested_estimators(type_filter=None):
     yield KNeighborsClassifier(algorithm="kd_tree")
     yield KNeighborsRegressor(algorithm="ball_tree")
 
+    yield ColumnTransformer(
+        [
+            ("norm1", Normalizer(norm="l1"), [0]),
+            ("norm2", Normalizer(norm="l1"), [1, 2]),
+            ("norm3", Normalizer(norm="l1"), [True] + (N_FEATURES - 1) * [False]),
+            ("norm4", Normalizer(norm="l1"), np.array([1, 2])),
+            ("norm5", Normalizer(norm="l1"), slice(3)),
+            ("norm6", Normalizer(norm="l1"), slice(-10, -3, 2)),
+        ],
+    )
+
+    yield GridSearchCV(
+        LogisticRegression(random_state=0, solver="liblinear"),
+        {"C": [1, 2, 3, 4, 5]},
+    )
+
+    yield HalvingGridSearchCV(
+        LogisticRegression(random_state=0, solver="liblinear"),
+        {"C": [1, 2, 3, 4, 5]},
+    )
+
+    yield HalvingRandomSearchCV(
+        LogisticRegression(random_state=0, solver="liblinear"),
+        {"C": [1, 2, 3, 4, 5]},
+    )
+
+    yield RandomizedSearchCV(
+        LogisticRegression(random_state=0, solver="liblinear"),
+        {"C": [1, 2, 3, 4, 5]},
+        n_iter=3,
+    )
+
+    dictionary = np.random.randint(-2, 3, size=(5, N_FEATURES)).astype(float)
+    yield SparseCoder(
+        dictionary=dictionary,
+        transform_algorithm="lasso_lars",
+    )
+
 
 def _is_steps_like(obj):
     # helper function to check if an object is something like Pipeline.steps,
@@ -157,6 +208,10 @@ def _is_steps_like(obj):
 
 
 def _assert_generic_objects_equal(val1, val2):
+    def _is_builtin(val):
+        # Check if value is a builtin type
+        return getattr(getattr(val, "__class__", {}), "__module__", None) == "builtins"
+
     if isinstance(val1, (list, tuple, np.ndarray)):
         assert len(val1) == len(val2)
         for subval1, subval2 in zip(val1, val2):
@@ -166,16 +221,32 @@ def _assert_generic_objects_equal(val1, val2):
     assert type(val1) == type(val2)
     if hasattr(val1, "__dict__"):
         assert_params_equal(val1.__dict__, val2.__dict__)
+    elif _is_builtin(val1):
+        assert val1 == val2
     else:
         # not a normal Python class, could be e.g. a Cython class
         assert val1.__reduce__() == val2.__reduce__()
+
+
+def _assert_tuples_equal(val1, val2):
+    assert len(val1) == len(val2)
+    for subval1, subval2 in zip(val1, val2):
+        _assert_vals_equal(subval1, subval2)
 
 
 def _assert_vals_equal(val1, val2):
     if hasattr(val1, "__getstate__"):
         # This includes BaseEstimator since they implement __getstate__ and
         # that returns the parameters as well.
-        assert_params_equal(val1.__getstate__(), val2.__getstate__())
+        #
+        # Some objects return a tuple of parameters, others a dict.
+        state1 = val1.__getstate__()
+        state2 = val2.__getstate__()
+        assert type(state1) == type(state2)
+        if isinstance(state1, tuple):
+            _assert_tuples_equal(state1, state2)
+        else:
+            assert_params_equal(val1.__getstate__(), val2.__getstate__())
     elif sparse.issparse(val1):
         assert sparse.issparse(val2) and ((val1 - val2).nnz == 0)
     elif isinstance(val1, (np.ndarray, np.generic)):
@@ -243,20 +314,6 @@ def assert_params_equal(params1, params2):
             _assert_vals_equal(val1, val2)
 
 
-def _get_learned_attrs(estimator):
-    # Find the learned attributes like "coefs_"
-    attrs = {}
-    for key in estimator.__dict__:
-        if key.startswith("_") or not key.endswith("_"):
-            continue
-
-        val = getattr(estimator, key)
-        if isinstance(val, property):
-            continue
-        attrs[key] = val
-    return attrs
-
-
 @pytest.mark.parametrize(
     "estimator", _tested_estimators(), ids=_get_check_estimator_ids
 )
@@ -275,12 +332,14 @@ def get_input(estimator):
     # TODO: make this a parameter and test with sparse data
     # TODO: try with pandas.DataFrame as well
     # This data can be used for a regression model as well.
-    X, y = make_classification(n_samples=50)
+    X, y = make_classification(
+        n_samples=N_SAMPLES, n_features=N_FEATURES, random_state=0
+    )
     y = _enforce_estimator_tags_y(estimator, y)
     tags = _safe_tags(estimator)
 
     if tags["pairwise"] is True:
-        return np.random.rand(20, 20), None
+        return np.random.rand(N_FEATURES, N_FEATURES), None
 
     if "2darray" in tags["X_types"]:
         # Some models require positive X
@@ -327,19 +386,17 @@ def test_can_persist_fitted(estimator):
     set_random_state(estimator, random_state=0)
 
     X, y = get_input(estimator)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", module="sklearn")
-        if y is not None:
-            estimator.fit(X, y)
-        else:
-            estimator.fit(X)
+    tags = _safe_tags(estimator)
+    if tags.get("requires_fit", True):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", module="sklearn")
+            if y is not None:
+                estimator.fit(X, y)
+            else:
+                estimator.fit(X)
 
     loaded = save_load_round(estimator)
-    # check that params and learned attributes are equal
-    assert_params_equal(estimator.get_params(), loaded.get_params())
-    attrs_est = _get_learned_attrs(estimator)
-    attrs_loaded = _get_learned_attrs(loaded)
-    assert_params_equal(attrs_est, attrs_loaded)
+    assert_params_equal(estimator.__dict__, loaded.__dict__)
 
     for method in [
         "predict",
@@ -420,7 +477,9 @@ class CVEstimator(BaseEstimator):
 def test_cross_validator(cv):
     est = CVEstimator(cv=cv).fit(None, None)
     loaded = save_load_round(est)
-    X, y = make_classification(n_samples=50)
+    X, y = make_classification(
+        n_samples=N_SAMPLES, n_features=N_FEATURES, random_state=0
+    )
 
     kwargs = {}
     name = est.cv_.__class__.__name__.lower()
@@ -436,12 +495,89 @@ def test_cross_validator(cv):
         np.testing.assert_equal(split_est, split_loaded)
 
 
+def test_metainfo():
+    class MyEstimator(BaseEstimator):
+        """Estimator with attributes of different supported types"""
+
+        def fit(self, X, y=None, **fit_params):
+            self.builtin_ = [1, 2, 3]
+            self.stdlib_ = Counter([10, 20, 20, 30, 30, 30])
+            self.numpy_ = np.arange(5)
+            self.sparse_ = sparse.csr_matrix([[0, 1], [1, 0]])
+            self.sklearn_ = LogisticRegression()
+            # create a nested data structure to check if that works too
+            self.nested_ = {
+                "builtin_": self.builtin_,
+                "stdlib_": self.stdlib_,
+                "numpy_": self.numpy_,
+                "sparse_": self.sparse_,
+                "sklearn_": self.sklearn_,
+            }
+            return self
+
+    # safe and load the schema
+    estimator = MyEstimator().fit(None)
+    _, f_name = tempfile.mkstemp(prefix="skops-", suffix=".skops")
+    save(file=f_name, obj=estimator)
+    schema = json.loads(ZipFile(f_name).read("schema.json"))
+
+    # check some schema metainfo
+    assert schema["protocol"] == skops.io._persist.PROTOCOL
+    assert schema["_skops_version"] == skops.__version__
+
+    # additionally, check following metainfo: class, module, and version
+    expected = {
+        "builtin_": {
+            "__class__": "list",
+            "__module__": "builtins",
+        },
+        "stdlib_": {
+            "__class__": "Counter",
+            "__module__": "collections",
+        },
+        "numpy_": {
+            "__class__": "ndarray",
+            "__module__": "numpy",
+        },
+        "sparse_": {
+            "__class__": "csr_matrix",
+            "__module__": "scipy.sparse",
+        },
+        "sklearn_": {
+            "__class__": "LogisticRegression",
+            "__module__": "sklearn.linear_model",
+        },
+    }
+    # check both the top level state and the nested state
+    states = schema["content"], schema["content"]["nested_"]["content"]
+    for key, val_expected in expected.items():
+        for state in states:
+            val_state = state[key]
+            # check presence of "content"/"file" but not exact values
+            assert ("content" in val_state) or ("file" in val_state)
+            assert val_state["__class__"] == val_expected["__class__"]
+            # We don't want to compare full module structures, because they can
+            # change across versions, e.g. 'scipy.sparse.csr' moving to
+            # 'scipy.sparse._csr'.
+            assert val_state["__module__"].startswith(val_expected["__module__"])
+
+
 # TODO: remove this, Adrin uses this for debugging.
 if __name__ == "__main__":
-    from sklearn.experimental import enable_iterative_imputer  # noqa
-    from sklearn.impute import IterativeImputer as SINGLE_CLASS
+    from sklearn.ensemble import StackingClassifier as SINGLE_CLASS
 
     estimator = _construct_instance(SINGLE_CLASS)
+    estimator = ColumnTransformer(
+        [
+            ("norm1", Normalizer(norm="l1"), [0]),
+            ("norm2", Normalizer(norm="l1"), [1, 2]),
+            ("norm3", Normalizer(norm="l1"), [True] + (N_FEATURES - 1) * [False]),
+            ("norm4", Normalizer(norm="l1"), np.array([1, 2])),
+            ("norm5", Normalizer(norm="l1"), slice(3)),
+            ("norm6", Normalizer(norm="l1"), slice(-10, -3, 2)),
+        ],
+    )
+
     loaded = save_load_round(estimator)
     assert_params_equal(estimator.get_params(), loaded.get_params())
 
@@ -456,11 +592,7 @@ if __name__ == "__main__":
             estimator.fit(X)
 
     loaded = save_load_round(estimator)
-    # check that params and learned attributes are equal
-    assert_params_equal(estimator.get_params(), loaded.get_params())
-    attrs_est = _get_learned_attrs(estimator)
-    attrs_loaded = _get_learned_attrs(loaded)
-    assert_params_equal(attrs_est, attrs_loaded)
+    assert_params_equal(estimator.__dict__, loaded.__dict__)
 
     for method in [
         "predict",
