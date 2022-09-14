@@ -13,6 +13,9 @@ from sklearn.linear_model._sgd_fast import (
     SquaredHinge,
     SquaredLoss,
 )
+from sklearn.metrics import DistanceMetric
+from sklearn.metrics._dist_metrics import METRIC_MAPPING
+from sklearn.neighbors import BallTree, KDTree
 from sklearn.tree._tree import Tree
 from sklearn.utils import Bunch
 
@@ -36,6 +39,8 @@ ALLOWED_SGD_LOSSES = {
     EpsilonInsensitive,
     SquaredEpsilonInsensitive,
 }
+ALLOWED_BINARY_TREES = {BallTree, KDTree}
+ALLOWED_DIST_METRICS = set(METRIC_MAPPING.values())
 
 
 def generic_get_state(obj, dst):
@@ -171,14 +176,52 @@ def reduce_get_instance(state, src, constructor):
 
 
 def Tree_get_instance(state, src):
-    return reduce_get_instance(state, src, Tree)
+    return reduce_get_instance(state, src, constructor=Tree)
 
 
 def sgd_loss_get_instance(state, src):
     cls = gettype(state)
     if cls not in ALLOWED_SGD_LOSSES:
         raise TypeError(f"Expected LossFunction, got {cls}")
-    return reduce_get_instance(state, src, cls)
+    return reduce_get_instance(state, src, constructor=cls)
+
+
+def reduce_based_on_tuple_get_state(obj, dst):
+    # For more details, take a look at reduce_get_state. This extra function is
+    # needed because __getstate__ of certain sklearn classes returns a tuple
+    # instead of a dict, which we thus need to treat differently.
+    res = {
+        "__class__": obj.__class__.__name__,
+        "__module__": inspect.getmodule(type(obj)).__name__,
+    }
+    reduce = obj.__reduce__()
+    res["__reduce__"] = {"state": get_state(reduce[2], dst)}
+    return res
+
+
+def reduce_based_on_tuple_get_instance(state, src, constructor):
+    # For more details, take a look at reduce_get_instance. This extra function
+    # is needed because __setstate__ of certain sklearn classes require a tuple
+    # instead of a dict, which we thus need to treat differently.
+    instance = constructor.__new__(constructor)
+    reduce = state.pop("__reduce__")
+    args = get_instance(reduce["state"], src)
+    instance.__setstate__(args)
+    return instance
+
+
+def binary_tree_get_instance(state, src):
+    cls = gettype(state)
+    if cls not in ALLOWED_BINARY_TREES:
+        raise TypeError(f"Expected BinaryTree, got {cls}")
+    return reduce_based_on_tuple_get_instance(state, src, constructor=cls)
+
+
+def distance_metric_get_instance(state, src):
+    cls = gettype(state)
+    if cls not in ALLOWED_DIST_METRICS:
+        raise TypeError(f"Expected DistanceMetric, got {cls}")
+    return reduce_based_on_tuple_get_instance(state, src, constructor=cls)
 
 
 def bunch_get_instance(state, src):
@@ -216,6 +259,9 @@ def _DictWithDeprecatedKeys_get_instance(state, src):
 GET_STATE_DISPATCH_FUNCTIONS = [
     (LossFunction, reduce_get_state),
     (Tree, reduce_get_state),
+    (BallTree, reduce_based_on_tuple_get_state),
+    (KDTree, reduce_based_on_tuple_get_state),
+    (DistanceMetric, reduce_based_on_tuple_get_state),
     (_DictWithDeprecatedKeys, _DictWithDeprecatedKeys_get_state),
     (object, generic_get_state),
 ]
@@ -223,6 +269,9 @@ GET_STATE_DISPATCH_FUNCTIONS = [
 GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (LossFunction, sgd_loss_get_instance),
     (Tree, Tree_get_instance),
+    (BallTree, binary_tree_get_instance),
+    (KDTree, binary_tree_get_instance),
+    (DistanceMetric, distance_metric_get_instance),
     (Bunch, bunch_get_instance),
     (_DictWithDeprecatedKeys, _DictWithDeprecatedKeys_get_instance),
     (object, generic_get_instance),

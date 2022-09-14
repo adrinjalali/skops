@@ -116,6 +116,11 @@ def _tested_estimators(type_filter=None):
         inverse_func=special.erfinv,
     )
 
+    from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+
+    yield KNeighborsClassifier(algorithm="kd_tree")
+    yield KNeighborsRegressor(algorithm="ball_tree")
+
 
 def _is_steps_like(obj):
     # helper function to check if an object is something like Pipeline.steps,
