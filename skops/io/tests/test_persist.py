@@ -1,5 +1,6 @@
 import tempfile
 import warnings
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ from sklearn.datasets import load_sample_images, make_classification
 from sklearn.exceptions import SkipTestWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold, ShuffleSplit, StratifiedGroupKFold, check_cv
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import (
     FunctionTransformer,
@@ -116,7 +118,11 @@ def _tested_estimators(type_filter=None):
         inverse_func=special.erfinv,
     )
 
-    from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+    # partial functions should be supported
+    yield FunctionTransformer(
+        func=partial(np.add, 10),
+        inverse_func=partial(np.add, -10),
+    )
 
     yield KNeighborsClassifier(algorithm="kd_tree")
     yield KNeighborsRegressor(algorithm="ball_tree")
@@ -432,7 +438,8 @@ def test_cross_validator(cv):
 
 # TODO: remove this, Adrin uses this for debugging.
 if __name__ == "__main__":
-    from sklearn.preprocessing import KBinsDiscretizer as SINGLE_CLASS
+    from sklearn.experimental import enable_iterative_imputer  # noqa
+    from sklearn.impute import IterativeImputer as SINGLE_CLASS
 
     estimator = _construct_instance(SINGLE_CLASS)
     loaded = save_load_round(estimator)

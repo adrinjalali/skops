@@ -1,5 +1,4 @@
 import io
-from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,7 +6,7 @@ import numpy as np
 
 from ._general import function_get_instance
 from ._persist import get_instance, get_state
-from ._utils import _import_obj, get_module, whichmodule
+from ._utils import _import_obj, get_module
 
 
 def ndarray_get_state(obj, dst):
@@ -94,13 +93,11 @@ def random_generator_get_instance(state, src):
 # functions we get it from objet's module directly. Therefore sett a especial
 # get_state method for them here. The load is the same as other functions.
 def ufunc_get_state(obj, dst):
-    if isinstance(obj, partial):
-        raise TypeError("partial function are not supported yet")
     res = {
         "__class__": obj.__class__.__name__,  # ufunc
         "__module__": get_module(type(obj)),  # numpy
         "content": {
-            "module_path": whichmodule(obj, obj.__name__),
+            "module_path": get_module(obj),
             "function": obj.__name__,
         },
     }
