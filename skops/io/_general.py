@@ -5,7 +5,13 @@ from types import FunctionType
 import numpy as np
 
 from ._utils import _get_instance, _get_state, _import_obj, get_module, gettype
-from .exceptions import UnsupportedTypeException
+from .exceptions import UnsafeTypeError, UnsupportedTypeException
+
+ALLOWED_FUNCTION_MODULES = {
+    "numpy",
+    "scipy",
+    "sklearn",
+}
 
 
 def dict_get_state(obj, dst):
@@ -92,9 +98,15 @@ def tuple_get_instance(state, src):
 
 
 def function_get_state(obj, dst):
+    module = get_module(obj)
+    # Only allow functions from trusted modules to be used
+    top, _, _ = module.partition(".")
+    if top not in ALLOWED_FUNCTION_MODULES:
+        raise UnsafeTypeError(obj.__class__.__name__)
+
     res = {
         "__class__": obj.__class__.__name__,
-        "__module__": get_module(obj),
+        "__module__": module,
         "content": {
             "module_path": get_module(obj),
             "function": obj.__name__,
@@ -103,8 +115,14 @@ def function_get_state(obj, dst):
     return res
 
 
-def function_get_instance(obj, src):
-    loaded = _import_obj(obj["content"]["module_path"], obj["content"]["function"])
+def function_get_instance(state, src):
+    module = state["__module__"]
+    # Only allow functions from trusted modules to be used
+    top, _, _ = module.partition(".")
+    if top not in ALLOWED_FUNCTION_MODULES:
+        raise UnsafeTypeError(state["__class__"])
+
+    loaded = _import_obj(state["content"]["module_path"], state["content"]["function"])
     return loaded
 
 
@@ -123,8 +141,8 @@ def partial_get_state(obj, dst):
     return res
 
 
-def partial_get_instance(obj, src):
-    content = obj["content"]
+def partial_get_instance(state, src):
+    content = state["content"]
     func = _get_instance(content["func"], src)
     args = _get_instance(content["args"], src)
     kwds = _get_instance(content["kwds"], src)
@@ -234,6 +252,9 @@ def unsupported_get_state(obj, dst):
     raise UnsupportedTypeException(obj)
 
 
+builtin_function_or_method = type(len)
+
+
 # tuples of type and function that gets the state of that type
 GET_STATE_DISPATCH_FUNCTIONS = [
     (dict, dict_get_state),
@@ -241,6 +262,7 @@ GET_STATE_DISPATCH_FUNCTIONS = [
     (tuple, tuple_get_state),
     (slice, slice_get_state),
     (FunctionType, function_get_state),
+    (builtin_function_or_method, function_get_state),
     (partial, partial_get_state),
     (type, type_get_state),
     (object, object_get_state),
@@ -252,6 +274,7 @@ GET_INSTANCE_DISPATCH_FUNCTIONS = [
     (tuple, tuple_get_instance),
     (slice, slice_get_instance),
     (FunctionType, function_get_instance),
+    (builtin_function_or_method, function_get_instance),
     (partial, partial_get_instance),
     (type, type_get_instance),
     (object, object_get_instance),

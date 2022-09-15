@@ -1,5 +1,6 @@
 import json
 import tempfile
+import urllib.request
 import warnings
 from collections import Counter
 from functools import partial
@@ -8,6 +9,7 @@ from zipfile import ZipFile
 
 import numpy as np
 import pytest
+import sklearn
 from scipy import sparse, special
 from sklearn.base import BaseEstimator
 from sklearn.compose import ColumnTransformer
@@ -50,8 +52,9 @@ from sklearn.utils.estimator_checks import (
 
 import skops
 from skops.io import load, save
+from skops.io._persist import get_instance
 from skops.io._sklearn import UNSUPPORTED_TYPES
-from skops.io.exceptions import UnsupportedTypeException
+from skops.io.exceptions import UnsafeTypeError, UnsupportedTypeException
 from skops.utils.fixes import path_unlink
 
 # Default settings for X
@@ -605,50 +608,42 @@ def test_metainfo():
             assert val_state["__module__"].startswith(val_expected["__module__"])
 
 
-# TODO: remove this, Adrin uses this for debugging.
-if __name__ == "__main__":
-    from sklearn.ensemble import StackingClassifier as SINGLE_CLASS
+@pytest.mark.parametrize(
+    "func",
+    [
+        eval,
+        exec,
+        urllib.request.urlopen,
+        sklearn.__builtins__["eval"],
+        partial(eval, "print('danger')"),
+        partial(exec, "print('danger')"),
+        partial(urllib.request.urlopen, "https://skops.readthedocs.io/"),
+        partial(sklearn.__builtins__["eval"], "print('danger')"),
+    ],
+)
+def test_save_function_transformer_with_malicious_function(func):
+    ft = FunctionTransformer(func=func)
+    if isinstance(func, partial):
+        func_name = func.func.__class__.__name__
+    else:
+        func_name = func.__class__.__name__
 
-    estimator = _construct_instance(SINGLE_CLASS)
-    estimator = ColumnTransformer(
-        [
-            ("norm1", Normalizer(norm="l1"), [0]),
-            ("norm2", Normalizer(norm="l1"), [1, 2]),
-            ("norm3", Normalizer(norm="l1"), [True] + (N_FEATURES - 1) * [False]),
-            ("norm4", Normalizer(norm="l1"), np.array([1, 2])),
-            ("norm5", Normalizer(norm="l1"), slice(3)),
-            ("norm6", Normalizer(norm="l1"), slice(-10, -3, 2)),
-        ],
-    )
+    msg = f"Objects of type {func_name} are potentially unsafe"
+    with pytest.raises(UnsafeTypeError, match=msg):
+        _, f_name = tempfile.mkstemp(prefix="skops-", suffix=".skops")
+        save(file=f_name, obj=ft)
 
-    loaded = save_load_round(estimator)
-    assert_params_equal(estimator.get_params(), loaded.get_params())
 
-    set_random_state(estimator, random_state=0)
+def test_load_malicious_function():
+    # Even though we don't allow saving these functions, an attacker could still
+    # build a state that contains it, so we also need to ensure that they cannot
+    # be loaded.
+    state = {
+        "__class__": "builtin_function_or_method",
+        "__module__": "builtins",
+        "content": {"function": "eval", "module_path": "builtins"},
+    }
 
-    X, y = get_input(estimator)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", module="sklearn")
-        if y is not None:
-            estimator.fit(X, y)
-        else:
-            estimator.fit(X)
-
-    loaded = save_load_round(estimator)
-    assert_params_equal(estimator.__dict__, loaded.__dict__)
-
-    for method in [
-        "predict",
-        "predict_proba",
-        "decision_function",
-        "transform",
-        "predict_log_proba",
-    ]:
-        err_msg = (
-            f"{estimator.__class__.__name__}.{method}() doesn't produce the same"
-            " results after loading the persisted model."
-        )
-        if hasattr(estimator, method):
-            X_pred1 = getattr(estimator, method)(X)
-            X_pred2 = getattr(loaded, method)(X)
-            assert_allclose_dense_sparse(X_pred1, X_pred2, err_msg=err_msg)
+    msg = "Objects of type builtin_function_or_method are potentially unsafe"
+    with pytest.raises(UnsafeTypeError, match=msg):
+        get_instance(state, "<SRC>")
