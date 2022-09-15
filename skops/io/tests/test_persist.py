@@ -549,7 +549,10 @@ def test_metainfo():
         },
     }
     # check both the top level state and the nested state
-    states = schema["content"], schema["content"]["nested_"]["content"]
+    states = (
+        schema["content"]["content"],
+        schema["content"]["content"]["nested_"]["content"],
+    )
     for key, val_expected in expected.items():
         for state in states:
             val_state = state[key]
