@@ -86,10 +86,7 @@ def reduce_get_state(obj, dst):
 
 
 def reduce_get_instance(state, src, constructor):
-    state.pop("__class__")
-    state.pop("__module__")
-
-    reduce = state.pop("__reduce__")
+    reduce = state["__reduce__"]
     args = get_instance(reduce["args"], src)
     instance = constructor(*args)
 
