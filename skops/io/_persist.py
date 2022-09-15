@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 import skops
 
+from ._audit import audit
 from ._utils import get_instance, get_state
 
 # For now, there is just one protocol version
@@ -42,7 +43,9 @@ def save(obj, file):
         shutil.move(f"{file}.zip", file)
 
 
-def load(file):
+def load(file, trust_source=False):
+    if not trust_source:
+        audit(file)
     input_zip = ZipFile(file)
     schema = input_zip.read("schema.json")
     return get_instance(json.loads(schema), input_zip)

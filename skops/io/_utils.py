@@ -182,6 +182,8 @@ def _import_obj(module, cls_or_func, package=None):
 
 
 def gettype(state):
+    # Note that if this is ever touched, _audit._audit_node needs to be adapted
+    # as well.
     if "__module__" in state and "__class__" in state:
         if state["__class__"] == "function":
             # This special case is due to how functions are serialized. We

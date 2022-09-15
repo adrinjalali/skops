@@ -570,15 +570,9 @@ if __name__ == "__main__":
     from sklearn.ensemble import StackingClassifier as SINGLE_CLASS
 
     estimator = _construct_instance(SINGLE_CLASS)
-    estimator = ColumnTransformer(
-        [
-            ("norm1", Normalizer(norm="l1"), [0]),
-            ("norm2", Normalizer(norm="l1"), [1, 2]),
-            ("norm3", Normalizer(norm="l1"), [True] + (N_FEATURES - 1) * [False]),
-            ("norm4", Normalizer(norm="l1"), np.array([1, 2])),
-            ("norm5", Normalizer(norm="l1"), slice(3)),
-            ("norm6", Normalizer(norm="l1"), slice(-10, -3, 2)),
-        ],
+    estimator = FunctionTransformer(
+        func=partial(np.add, 10),
+        inverse_func=partial(np.add, -10),
     )
 
     loaded = save_load_round(estimator)
